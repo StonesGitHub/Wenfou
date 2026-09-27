@@ -73,6 +73,17 @@ class PrivacyBoundaryTest(unittest.TestCase):
             self.store.submit_post(
                 "alice", self.cid, other_qid, self.answer_id, "其他问题", "示例", ""
             )
+        second_qid, second_aid = self.store.ask("alice", self.cid, "第二个问题")
+        with self.assertRaises(InvalidAction):
+            self.store.submit_post(
+                "alice", self.cid, self.question_id, second_aid,
+                "为什么要分享问题？", "这是一个示例回答", ""
+            )
+        with self.assertRaises(InvalidAction):
+            self.store.submit_post(
+                "alice", self.cid, second_qid, self.answer_id,
+                "第二个问题", "这是一个示例回答", ""
+            )
 
     def test_withdrawal_removes_public_access(self):
         pid = self.submit()
