@@ -1,0 +1,164 @@
+openapi: 3.1.0
+info:
+  title: 问否 API 草案
+  version: 0.1.0
+  description: 首个代码切片的接口契约；鉴权、幂等与流式实现尚待接入。
+servers:
+  - url: https://api.example.invalid/v1
+security:
+  - bearerAuth: []
+paths:
+  /feed:
+    get:
+      summary: 读取已发布的问题帖
+      security: []
+      responses:
+        '200':
+          description: PublicPost 数组
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicPost'
+  /posts/{postId}:
+    get:
+      summary: 读取已发布的快照
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '200':
+          description: 已发布帖子
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicPost'
+        '404':
+          description: 不存在、未发布或已撤回
+  /conversations:
+    post:
+      summary: 创建私密会话
+      responses:
+        '201':
+          description: 仅当前用户可读
+  /conversations/{conversationId}/messages:
+    get:
+      summary: 读取自己的消息
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      responses:
+        '200':
+          description: 自己的私密消息
+        '404':
+          description: 不存在或非所有者
+  /conversations/{conversationId}/runs:
+    post:
+      summary: 提交问题并发起模型回答
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question:
+                  type: string
+      responses:
+        '202':
+          description: 返回 run_id；具体事件流在下一切片定义
+  /posts:
+    post:
+      summary: 确认提交所选片段，进入待审核状态
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostSubmission'
+      responses:
+        '202':
+          description: pending，不在公开流中
+  /posts/{postId}/forks:
+    post:
+      summary: 仅用已公开内容创建自己的私密分叉
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '201':
+          description: 返回属于当前用户的新 conversation_id
+        '404':
+          description: 帖子不可公开读取
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    PostId:
+      name: postId
+      in: path
+      required: true
+      schema:
+        type: string
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    PublicPost:
+      type: object
+      required: [id, author_id, question, answer, note, source, created_at]
+      properties:
+        id:
+          type: string
+        author_id:
+          type: string
+        question:
+          type: string
+        answer:
+          type: string
+        note:
+          type: string
+        source:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    PostSubmission:
+      type: object
+      required:
+        - conversation_id
+        - question_message_id
+        - answer_message_id
+        - question_excerpt
+        - answer_excerpt
+      properties:
+        conversation_id:
+          type: string
+        question_message_id:
+          type: string
+        answer_message_id:
+          type: string
+        question_excerpt:
+          type: string
+        answer_excerpt:
+          type: string
+        note:
+          type: string
