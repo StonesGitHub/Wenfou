@@ -161,11 +161,19 @@ class WenfouStore:
         by_id = {row["id"]: row for row in rows}
         question = by_id.get(question_message_id)
         answer = by_id.get(answer_message_id)
+        next_message = self.db.execute(
+            "SELECT id FROM messages WHERE conversation_id = ? AND rowid > "
+            "(SELECT rowid FROM messages WHERE id = ?) "
+            "ORDER BY rowid LIMIT 1",
+            (conversation_id, question_message_id),
+        ).fetchone()
         if (
             not question
             or not answer
             or question["role"] != "user"
             or answer["role"] != "assistant"
+            or next_message is None
+            or next_message["id"] != answer_message_id
             or not question_excerpt.strip()
             or not answer_excerpt.strip()
             or question_excerpt not in question["text"]
