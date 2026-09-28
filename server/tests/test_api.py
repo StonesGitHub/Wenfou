@@ -82,6 +82,23 @@ def published(client, factory):
     return pid, owner, reviewer
 
 
+def test_commit_failure_never_reports_success(setup):
+    from sqlalchemy import event
+    from sqlalchemy.exc import SQLAlchemyError
+    client, factory, _ = setup
+    owner = register(client, factory)
+    def fail_commit(session):
+        raise SQLAlchemyError("simulated commit failure")
+    event.listen(factory, "before_commit", fail_commit)
+    try:
+        response = submit(client, owner)
+        assert response.status_code == 503
+    finally:
+        event.remove(factory, "before_commit", fail_commit)
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(Post)) == 0
+
+
 def test_auth_invitation_password_logout(setup):
     client, factory, _ = setup
     assert client.get("/v1/me").status_code == 401
