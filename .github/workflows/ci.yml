@@ -41,7 +41,27 @@ jobs:
           if-no-files-found: error
       - name: Render UI and test question-to-share flow
         working-directory: clients/android
-        run: bash gradlew :app:testDebugUnitTest
+        timeout-minutes: 5
+        run: |
+          mkdir -p app/build/outputs/ui-review
+          set +e
+          bash gradlew :app:testDebugUnitTest --no-daemon &
+          test_pid=$!
+          (
+            sleep 90
+            if kill -0 "$test_pid" 2>/dev/null; then
+              for jvm_pid in $(jps -q); do
+                jcmd "$jvm_pid" Thread.print > "app/build/outputs/ui-review/threads-$jvm_pid.txt" 2>&1
+              done
+              sleep 30
+              kill -TERM "$test_pid" 2>/dev/null
+            fi
+          ) &
+          watchdog_pid=$!
+          wait "$test_pid"
+          test_result=$?
+          kill "$watchdog_pid" 2>/dev/null
+          exit "$test_result"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
