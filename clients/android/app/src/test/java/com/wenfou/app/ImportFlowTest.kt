@@ -85,9 +85,16 @@ class ImportFlowTest {
             activity.onWindowFocusChanged(true)
         }
         compose.onNodeWithText("发现剪贴板内容").assertDoesNotExist()
-        compose.runOnUiThread { activity.onNewIntent(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "问题：系统分享的问题\n回答：系统分享的答案") }) }
-        compose.onNodeWithText("收到分享内容").assertExists()
-        compose.onNodeWithText("解析并预览").performClick()
-        compose.onNodeWithText("导入的问题").assertTextContains("系统分享的问题")
+        // ActivityScenario matches lifecycle events against the original launch Intent.
+        // onNewIntent legitimately updates it in the app; restore it for scenario teardown.
+        val launchIntent = activity.intent
+        try {
+            compose.runOnUiThread { activity.onNewIntent(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "问题：系统分享的问题\n回答：系统分享的答案") }) }
+            compose.onNodeWithText("收到分享内容").assertExists()
+            compose.onNodeWithText("解析并预览").performClick()
+            compose.onNodeWithText("导入的问题").assertTextContains("系统分享的问题")
+        } finally {
+            compose.runOnUiThread { activity.intent = launchIntent }
+        }
     }
 }
