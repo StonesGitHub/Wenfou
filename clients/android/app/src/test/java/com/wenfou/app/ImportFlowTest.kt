@@ -40,7 +40,7 @@ class ImportFlowTest {
         compose.onNodeWithText("确认，进入发布预览").performScrollTo().performClick()
         compose.onNodeWithText("分享文字").assertExists()
         compose.onNodeWithText("问否 · 外部导入 · 豆包（经用户编辑确认）").assertExists()
-        compose.onNodeWithText("把目标缩小到每天两分钟，并记下实际感受。").assertExists()
+        compose.onNode(hasText("把目标缩小到每天两分钟，并记下实际感受。") and hasAnySibling(hasText("问否 · 外部导入 · 豆包（经用户编辑确认）"))).assertExists()
     }
     @Test(timeout = 60000) fun answerOnlyRequiresQuestionAndProtectsExistingDraft() {
         compose.onNodeWithText("提问", useUnmergedTree = true).performClick()
