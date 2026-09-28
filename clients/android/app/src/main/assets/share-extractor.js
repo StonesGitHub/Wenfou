@@ -28,7 +28,8 @@
     document.querySelectorAll('[data-testid="send_message"], [data-testid="receive_message"], [class*="bg-g-send-msg-bubble"], [class*="bg-g-receive-msg-bubble"]').forEach(el => {
       if (el.parentElement && el.parentElement.closest('[data-testid="send_message"], [data-testid="receive_message"], [class*="bg-g-send-msg-bubble"], [class*="bg-g-receive-msg-bubble"]')) return;
       if (el.getAttribute('data-testid') === 'send_message' || String(el.className).includes('bg-g-send-msg-bubble')) add('user', el);
-      else { const content = el.querySelector('[class*="markdown"]'); if (content) add('assistant', content); }
+      else { const contents = el.querySelectorAll('[data-testid="message_text_content"], [class*="markdown"]');
+        contents.forEach(content => { if (!content.parentElement.closest('[data-testid="message_text_content"], [class*="markdown"]')) add('assistant', content); }); }
     });
   }
   const size = rows.reduce((n, row) => n + row.text.length, 0);
