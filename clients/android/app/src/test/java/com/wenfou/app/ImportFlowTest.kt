@@ -30,7 +30,7 @@ class ImportFlowTest {
         compose.onNodeWithText("分享链接或复制内容").performTextInput(text)
         compose.onNodeWithText("解析内容").performScrollTo().performClick()
     }
-    @Test fun copyImportReviewEditAndShare() {
+    @Test(timeout = 60000) fun copyImportReviewEditAndShare() {
         openText("问题：怎样开始一个新习惯？\n豆包：把目标缩小到每天两分钟。\n问题：如果中断了呢？\n豆包：从下一次重新开始。")
         compose.onNodeWithText("第 2 轮").performClick()
         compose.onNodeWithText("导入的问题").assertTextContains("如果中断了呢？")
@@ -42,7 +42,7 @@ class ImportFlowTest {
         compose.onNodeWithText("问否 · 外部导入 · 豆包（经用户编辑确认）").assertExists()
         compose.onNodeWithText("把目标缩小到每天两分钟，并记下实际感受。").assertExists()
     }
-    @Test fun answerOnlyRequiresQuestionAndProtectsExistingDraft() {
+    @Test(timeout = 60000) fun answerOnlyRequiresQuestionAndProtectsExistingDraft() {
         compose.onNodeWithText("提问", useUnmergedTree = true).performClick()
         compose.onNode(hasSetTextAction()).performTextInput("原来的问题")
         openText("这是一段只有回答的复制文字，需要补充问题。")
@@ -54,36 +54,38 @@ class ImportFlowTest {
         compose.onNodeWithText("关闭").performClick()
         compose.onNode(hasSetTextAction()).assertTextContains("原来的问题")
     }
-    @Test fun foregroundClipboardOffersOnceAndCanBeDisabled() {
-        val prefs = compose.activity.getSharedPreferences("import_preferences", Context.MODE_PRIVATE)
+    @Test(timeout = 60000) fun foregroundClipboardOffersOnceAndCanBeDisabled() {
+        val activity = compose.activity
+        val prefs = activity.getSharedPreferences("import_preferences", Context.MODE_PRIVATE)
         compose.runOnUiThread {
             prefs.edit().clear().commit()
-            val clipboard = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("test", "https://chat.deepseek.com/share/khnxwaltmm52h62ac2"))
-            compose.activity.onWindowFocusChanged(true)
+            activity.onWindowFocusChanged(true)
         }
         compose.onNodeWithText("发现剪贴板内容").assertExists()
         shot("09-clipboard-confirm")
         compose.onNodeWithText("暂不导入").performClick()
-        compose.runOnUiThread { compose.activity.onWindowFocusChanged(true) }
+        compose.runOnUiThread { activity.onWindowFocusChanged(true) }
         compose.onNodeWithText("发现剪贴板内容").assertDoesNotExist()
         compose.runOnUiThread {
             prefs.edit().putBoolean("automatic_clipboard", false).commit()
-            (compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("test", "问题：新问题\n回答：新回答"))
-            compose.activity.onWindowFocusChanged(true)
+            (activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("test", "问题：新问题\n回答：新回答"))
+            activity.onWindowFocusChanged(true)
         }
         compose.onNodeWithText("发现剪贴板内容").assertDoesNotExist()
     }
-    @Test fun sensitiveClipboardIgnoredAndSystemShareAccepted() {
+    @Test(timeout = 60000) fun sensitiveClipboardIgnoredAndSystemShareAccepted() {
+        val activity = compose.activity
         compose.runOnUiThread {
-            compose.activity.getSharedPreferences("import_preferences", Context.MODE_PRIVATE).edit().clear().commit()
+            activity.getSharedPreferences("import_preferences", Context.MODE_PRIVATE).edit().clear().commit()
             val clip = ClipData.newPlainText("test", "问题：敏感问题\n回答：敏感回答")
             clip.description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
-            (compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
-            compose.activity.onWindowFocusChanged(true)
+            (activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+            activity.onWindowFocusChanged(true)
         }
         compose.onNodeWithText("发现剪贴板内容").assertDoesNotExist()
-        compose.runOnUiThread { compose.activity.onNewIntent(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "问题：系统分享的问题\n回答：系统分享的答案") }) }
+        compose.runOnUiThread { activity.onNewIntent(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "问题：系统分享的问题\n回答：系统分享的答案") }) }
         compose.onNodeWithText("收到分享内容").assertExists()
         compose.onNodeWithText("解析并预览").performClick()
         compose.onNodeWithText("导入的问题").assertTextContains("系统分享的问题")
