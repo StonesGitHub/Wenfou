@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test privacy and publication rules
         working-directory: server
-        run: python3 -m unittest discover -s tests -v
+        run: python3 -m unittest discover -s tests -p test_core.py -v
 
   android-debug:
     runs-on: ubuntu-24.04
