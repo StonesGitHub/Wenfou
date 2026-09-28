@@ -52,4 +52,5 @@ dependencies {
 tasks.withType<Test>().configureEach {
     systemProperty("roborazzi.test.record", "true")
     maxHeapSize = "3g"
+    testLogging { events("started", "passed", "failed", "skipped"); exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL }
 }
