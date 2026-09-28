@@ -43,8 +43,9 @@ import androidx.compose.ui.unit.sp
 private val Paper = Color(0xFFF7F5F0)
 private val Ink = Color(0xFF233C34)
 private val Coral = Color(0xFFE86147)
+private val AccentText = Color(0xFFB9422B)
 private val Sage = Color(0xFFE4EBDF)
-private val Muted = Color(0xFF737B73)
+private val Muted = Color(0xFF626D64)
 private val Line = Color(0xFFE4E5DC)
 private val SoftCoral = Color(0xFFFAE9E2)
 private val White = Color(0xFFFFFEFB)
@@ -66,7 +67,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Coral, onPrimary = White, background = Paper, onBackground = Ink, surface = White, onSurface = Ink, secondary = Ink, outline = Line)) {
+            MaterialTheme(colorScheme = lightColorScheme(primary = AccentText, onPrimary = White, background = Paper, onBackground = Ink, surface = White, onSurface = Ink, secondary = Ink, outline = Line)) {
                 WenfouApp()
             }
         }
@@ -125,7 +126,7 @@ private fun WenfouApp() {
         val post = samplePosts.first { it.id == id }
         ModalBottomSheet(onDismissRequest = { detailId = null }, containerColor = Paper) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                Eyebrow("${post.category} / 示例问答", Coral)
+                Eyebrow("${post.category} / 示例问答", AccentText)
                 Text(post.question, style = Headline)
                 AnswerBlock(post.answer)
                 Text("分享者的话", style = Caption)
@@ -199,7 +200,7 @@ private fun BottomNavigation(selected: Int, onSelect: (Int) -> Unit) {
                 val active = selected == index
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable { onSelect(index) }.padding(vertical = 5.dp).semantics { contentDescription = pair.first }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Box(Modifier.size(48.dp, 29.dp).background(if (active) SoftCoral else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) { LineIcon(pair.second, if (active) Coral else Muted, Modifier.size(23.dp)) }
-                    Text(pair.first, style = Caption.copy(color = if (active) Coral else Muted, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal))
+                    Text(pair.first, style = Caption.copy(color = if (active) AccentText else Muted, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal))
                 }
             }
         }
@@ -265,11 +266,11 @@ private fun PostCard(post: QuestionCard, saved: Boolean, onSave: () -> Unit, onO
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(29.dp).background(if (post.id % 2 == 0) SoftCoral else Sage, CircleShape), contentAlignment = Alignment.Center) { Text(post.author.take(1), style = Caption.copy(color = Ink, fontWeight = FontWeight.Bold)) }
                 Text(post.author, Modifier.padding(start = 8.dp).weight(1f), style = Caption.copy(color = Ink))
-                Text(post.category, style = Caption.copy(color = Coral))
+                Text(post.category, style = Caption.copy(color = AccentText))
             }
             Text(post.question.replace("\n", ""), style = Headline.copy(fontSize = 21.sp, lineHeight = 30.sp))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Paper).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("答", style = Caption.copy(color = Coral, fontWeight = FontWeight.Bold))
+                Text("答", style = Caption.copy(color = AccentText, fontWeight = FontWeight.Bold))
                 Text(post.answer, style = Body.copy(fontSize = 14.sp, lineHeight = 22.sp, color = Muted), maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -284,7 +285,7 @@ private fun PostCard(post: QuestionCard, saved: Boolean, onSave: () -> Unit, onO
 @Composable
 private fun AskScreen(question: String, onChange: (String) -> Unit, answer: String, onAsk: () -> Unit, onShare: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(top = 12.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
-        Eyebrow("每个好答案，都从好奇开始", Coral)
+        Eyebrow("每个好答案，都从好奇开始", AccentText)
         Text("把困惑，\n问成新的可能。", style = Headline.copy(fontSize = 32.sp, lineHeight = 43.sp))
         Text("先自由地问。想分享时，再选择公开的片段。", style = Body.copy(fontSize = 14.sp, color = Muted))
         Surface(shape = CardShape, color = White, border = BorderStroke(1.dp, Line)) {
@@ -310,7 +311,7 @@ private fun AskScreen(question: String, onChange: (String) -> Unit, answer: Stri
 @Composable
 private fun ShareScreen(question: String, answer: String, note: String, onNote: (String) -> Unit, short: Boolean, onShort: (Boolean) -> Unit, onPreview: () -> Unit, onSample: () -> Unit, onAsk: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(top = 12.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
-        Eyebrow("把有启发的一刻，留给更多人", Coral)
+        Eyebrow("把有启发的一刻，留给更多人", AccentText)
         Text("分享一个\n值得停留的答案。", style = Headline.copy(fontSize = 30.sp, lineHeight = 41.sp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { listOf("01  选片段", "02  写理由", "03  看预览").forEach { Text(it, style = Caption.copy(color = Ink, fontWeight = FontWeight.Medium)) } }
         if (answer.isBlank()) {
@@ -400,7 +401,7 @@ private fun Eyebrow(text: String, color: Color) { Text(text, style = Caption.cop
 
 @Composable
 private fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(onClick = onClick, modifier = modifier.heightIn(min = 54.dp), enabled = enabled, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = Coral, contentColor = White, disabledContainerColor = Line, disabledContentColor = Muted), contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)) {
+    Button(onClick = onClick, modifier = modifier.heightIn(min = 54.dp), enabled = enabled, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = AccentText, contentColor = White, disabledContainerColor = Line, disabledContentColor = Muted), contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)) {
         Text(text, style = Body.copy(color = if (enabled) White else Muted, fontWeight = FontWeight.Bold), modifier = Modifier.weight(1f, fill = false))
         Spacer(Modifier.width(12.dp)); LineIcon("arrow", if (enabled) White else Muted, Modifier.size(19.dp))
     }
