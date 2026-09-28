@@ -18,10 +18,17 @@
       if (role === 'assistant') { const content = el.querySelector('.markdown'); if (content) add(role, content); }
     });
   } else if (host === 'kimi.com' || host === 'www.kimi.com' || host === 'kimi.ai' || host === 'www.kimi.ai' || host === 'kimi.moonshot.cn') {
-    document.querySelectorAll('.chat-content-item').forEach(el => {
-      if (el.classList.contains('chat-content-item-user')) add('user', el.querySelector('.user-content') || el);
-      else if (el.classList.contains('chat-content-item-assistant')) {
-        const content = el.querySelector('.markdown'); if (content) add('assistant', content);
+    document.querySelectorAll('.segment-user, .segment-assistant, .chat-content-item').forEach(el => {
+      if (el.parentElement && el.parentElement.closest('.segment-user, .segment-assistant, .chat-content-item')) return;
+      if (el.classList.contains('segment-user') || el.classList.contains('chat-content-item-user')) add('user', el.querySelector('.user-content') || el);
+      else if (el.classList.contains('segment-assistant') || el.classList.contains('chat-content-item-assistant')) {
+        // Research reports contain progress summaries in separate markdown nodes.
+        // Prefer the finished report; never concatenate the research trace into it.
+        const reports = el.querySelectorAll('.report-markdown .markdown');
+        const contents = reports.length ? reports : el.querySelectorAll('.markdown');
+        contents.forEach(content => {
+          if (!content.closest('.research-item-text, [class*="thinking"], [class*="reasoning"]')) add('assistant', content);
+        });
       }
     });
   } else if (host === 'doubao.com' || host === 'www.doubao.com' || host === 'v.doubao.com') {
