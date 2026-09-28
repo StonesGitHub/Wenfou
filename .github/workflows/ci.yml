@@ -35,3 +35,14 @@ jobs:
           name: wenfou-debug-apk
           path: clients/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+      - name: Render UI and test question-to-share flow
+        working-directory: clients/android
+        run: bash gradlew :app:testDebugUnitTest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wenfou-ui-review
+          path: |
+            clients/android/app/build/outputs/ui-review/
+            clients/android/app/build/reports/tests/
+          if-no-files-found: warn
