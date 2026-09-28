@@ -5,6 +5,10 @@ on:
   push:
     branches: [codex/android-foundation]
 
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
