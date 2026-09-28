@@ -17,6 +17,7 @@ class VisualFlowTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     private fun shot(name: String) {
+        compose.mainClock.advanceTimeBy(600)
         compose.waitForIdle()
         compose.onRoot().captureRoboImage("build/outputs/ui-review/$name.png")
     }
