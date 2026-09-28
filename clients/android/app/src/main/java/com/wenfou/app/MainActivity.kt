@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = AccentText, onPrimary = White, background = Paper, onBackground = Ink, surface = White, onSurface = Ink, secondary = Ink, outline = Line)) {
+            MaterialTheme(colorScheme = lightColorScheme(primary = AccentText, onPrimary = White, background = Paper, onBackground = Ink, surface = White, onSurface = Ink, secondary = Ink, secondaryContainer = Sage, onSecondaryContainer = Ink, primaryContainer = SoftCoral, onPrimaryContainer = AccentText, onSurfaceVariant = Muted, surfaceVariant = Sage, outline = Line, outlineVariant = Line)) {
                 WenfouApp()
             }
         }
@@ -124,7 +124,7 @@ private fun WenfouApp() {
     }
     detailId?.let { id ->
         val post = samplePosts.first { it.id == id }
-        ModalBottomSheet(onDismissRequest = { detailId = null }, containerColor = Paper) {
+        ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { detailId = null }, containerColor = Paper) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 Eyebrow("${post.category} / 示例问答", AccentText)
                 Text(post.question, style = Headline)
@@ -141,7 +141,7 @@ private fun WenfouApp() {
         }
     }
     if (preview && answer.isNotBlank()) {
-        ModalBottomSheet(onDismissRequest = { preview = false }, containerColor = Paper) {
+        ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { preview = false }, containerColor = Paper) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Text("分享预览", style = Headline)
                 Surface(shape = CardShape, color = White, border = BorderStroke(1.dp, Line)) {
@@ -163,7 +163,7 @@ private fun WenfouApp() {
         }
     }
     if (collection) {
-        ModalBottomSheet(onDismissRequest = { collection = false }, containerColor = Paper) {
+        ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { collection = false }, containerColor = Paper) {
             LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item { Text("我的收藏", style = Headline) }
                 if (savedIds.isEmpty()) item { Text("遇到想再读一遍的回答，点一下书签，留在这里。", style = Body) }
@@ -249,7 +249,7 @@ private fun DiscoverScreen(category: String, onCategory: (String) -> Unit, saved
             }
         }
         item { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("值得一读", style = Headline.copy(fontSize = 20.sp, lineHeight = 26.sp), modifier = Modifier.weight(1f)); Text("示例内容", style = Caption) } }
-        items(samplePosts.filter { category == "精选" || it.category == category }) { post -> PostCard(post, post.id in saved, { onSave(post.id) }, { onOpen(post.id) }) }
+        items(if (category == "精选") samplePosts.drop(1) else samplePosts.filter { it.category == category }) { post -> PostCard(post, post.id in saved, { onSave(post.id) }, { onOpen(post.id) }) }
         item {
             Row(Modifier.fillMaxWidth().clip(CardShape).background(Sage).clickable(onClick = onAsk).padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text("你的问题，也值得一个位置。", style = Body.copy(fontWeight = FontWeight.Bold)); Text("从一个小小的好奇开始", style = Caption) }
@@ -291,7 +291,7 @@ private fun AskScreen(question: String, onChange: (String) -> Unit, answer: Stri
         Surface(shape = CardShape, color = White, border = BorderStroke(1.dp, Line)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) { Box(Modifier.size(6.dp).background(Coral, CircleShape)); Text("本地体验 · 示例回答", style = Caption) }
-                TextField(value = question, onValueChange = onChange, modifier = Modifier.fillMaxWidth(), placeholder = { Text("此刻，有什么想问的？\n\n一个困惑、一个脑洞，\n或一个迟迟没做的决定。", style = Body.copy(color = Muted)) }, minLines = 5, maxLines = 9, textStyle = Body.copy(fontSize = 17.sp, lineHeight = 27.sp), colors = TextFieldDefaults.colors(focusedContainerColor = White, unfocusedContainerColor = White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent), label = { Text("我的问题") })
+                TextField(value = question, onValueChange = onChange, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "我的问题" }, placeholder = { Text("此刻，有什么想问的？\n\n一个困惑、一个脑洞，\n或一个迟迟没做的决定。", style = Body.copy(color = Muted)) }, minLines = 5, maxLines = 9, textStyle = Body.copy(fontSize = 17.sp, lineHeight = 27.sp), colors = TextFieldDefaults.colors(focusedContainerColor = White, unfocusedContainerColor = White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { LineIcon("lock", Muted, Modifier.size(14.dp)); Text(" 仅自己可见", style = Caption, modifier = Modifier.weight(1f)); Text("${question.length}/600", style = Caption) }
                 PrimaryButton(if (answer.isBlank()) "看看示例回答" else "重新查看示例", Modifier.fillMaxWidth(), question.isNotBlank(), onAsk)
             }
@@ -331,8 +331,8 @@ private fun ShareScreen(question: String, answer: String, note: String, onNote: 
                     Text(question, style = Headline.copy(fontSize = 22.sp, lineHeight = 31.sp))
                     HorizontalDivider(color = Line)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = !short, onClick = { onShort(false) }, label = { Text("完整回答") })
-                        FilterChip(selected = short, onClick = { onShort(true) }, label = { Text("只选第一句") })
+                        FilterChip(shape = CircleShape, selected = !short, onClick = { onShort(false) }, label = { Text("完整回答") })
+                        FilterChip(shape = CircleShape, selected = short, onClick = { onShort(true) }, label = { Text("只选第一句") })
                     }
                     Text(if (short) answer.substringBefore("。") + "。" else answer, style = Body)
                     Text("示例内容 · 非真实模型生成", style = Caption)
