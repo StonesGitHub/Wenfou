@@ -127,6 +127,7 @@ def create_app(config: Settings | None = None):
         logger.error("database operation failed: %s", type(exc).__name__)
         return JSONResponse({"detail": "服务暂时不可用，请稍后重试"}, status_code=503)
 
+    # Commit before sending success; commit failures must return 503, not a false 2xx.
     def db_session():
         with factory.begin() as db:
             yield db
@@ -139,7 +140,7 @@ def create_app(config: Settings | None = None):
     def guard(request: Request):
         throttle(request)
 
-    def current_user(db: Session = Depends(db_session), token: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    def current_user(db: Session = Depends(db_session, scope="function"), token: HTTPAuthorizationCredentials | None = Depends(bearer)):
         if token is None or token.scheme.lower() != "bearer" or len(token.credentials) > 128:
             raise HTTPException(401, "请登录", headers={"WWW-Authenticate": "Bearer"})
         session = db.get(SessionToken, digest(token.credentials))
@@ -170,14 +171,14 @@ def create_app(config: Settings | None = None):
         return {"status": "ok", "release": config.release}
 
     @app.get("/health/ready")
-    def ready(db: Session = Depends(db_session)):
+    def ready(db: Session = Depends(db_session, scope="function")):
         version = db.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         if version != SCHEMA_VERSION:
             raise HTTPException(503, "数据库版本不匹配")
         return {"status": "ok", "schema": version, "release": config.release}
 
     @app.post("/v1/auth/register", status_code=201, dependencies=[Depends(guard)])
-    def register(body: Registration, request: Request, db: Session = Depends(db_session)):
+    def register(body: Registration, request: Request, db: Session = Depends(db_session, scope="function")):
         if not config.registration_enabled:
             raise HTTPException(403, "暂未开放注册")
         throttle(request, "register", 5, 3600)
@@ -195,7 +196,7 @@ def create_app(config: Settings | None = None):
         return {**issue_session(db, user, config.session_hours), "user": user_json(user)}
 
     @app.post("/v1/auth/login", dependencies=[Depends(guard)])
-    def login(body: Credentials, request: Request, db: Session = Depends(db_session)):
+    def login(body: Credentials, request: Request, db: Session = Depends(db_session, scope="function")):
         throttle(request, "login", 20, 300)
         if config.rate_limit_enabled:
             rate_limit(factory, f"login-name:{body.username}", 10, 300)
@@ -211,7 +212,7 @@ def create_app(config: Settings | None = None):
         return {**issue_session(db, user, config.session_hours), "user": user_json(user)}
 
     @app.post("/v1/auth/logout", status_code=204, dependencies=[Depends(guard)])
-    def logout(user: User = Depends(current_user), token=Depends(bearer), db: Session = Depends(db_session)):
+    def logout(user: User = Depends(current_user), token=Depends(bearer), db: Session = Depends(db_session, scope="function")):
         db.execute(delete(SessionToken).where(SessionToken.token_hash == digest(token.credentials)))
 
     @app.get("/v1/me", dependencies=[Depends(guard)])
@@ -219,7 +220,7 @@ def create_app(config: Settings | None = None):
         return user_json(user)
 
     @app.post("/v1/me/password", status_code=204, dependencies=[Depends(guard)])
-    def password(body: PasswordChange, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    def password(body: PasswordChange, user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         if not verify_password(user.password_hash, body.current_password):
             raise HTTPException(401, "原密码错误")
         user.password_hash = password_hasher.hash(body.new_password)
@@ -227,7 +228,7 @@ def create_app(config: Settings | None = None):
         audit(db, user, "change_password", user.id, "用户修改密码，所有会话失效")
 
     @app.delete("/v1/me", status_code=204, dependencies=[Depends(guard)])
-    def delete_account(body: DeleteAccount, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    def delete_account(body: DeleteAccount, user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         if user.role == "admin":
             raise HTTPException(409, "管理员账号需先交接管理权限")
         if not verify_password(user.password_hash, body.password):
@@ -245,7 +246,7 @@ def create_app(config: Settings | None = None):
     @app.post("/v1/posts", status_code=202, dependencies=[Depends(guard)])
     def submit(body: PostInput, request: Request,
                request_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=80, pattern=r"^[A-Za-z0-9_-]+$"),
-               user: User = Depends(current_user), db: Session = Depends(db_session)):
+               user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         payload_hash = digest(json.dumps(body.model_dump(), sort_keys=True, ensure_ascii=False))
         previous = db.scalar(select(Post).where(Post.author_id == user.id, Post.request_key == request_key))
         if previous:
@@ -261,7 +262,7 @@ def create_app(config: Settings | None = None):
         return {"id": post.id, "status": "pending"}
 
     @app.get("/v1/feed", dependencies=[Depends(guard)])
-    def feed(limit: int = Query(20, ge=1, le=50), cursor: str | None = Query(None, max_length=96), db: Session = Depends(db_session)):
+    def feed(limit: int = Query(20, ge=1, le=50), cursor: str | None = Query(None, max_length=96), db: Session = Depends(db_session, scope="function")):
         stmt = select(Post, User).join(User, Post.author_id == User.id).where(Post.status == "published")
         if cursor:
             stmt = stmt.where(before(Post.published_at, Post.id, cursor))
@@ -271,13 +272,13 @@ def create_app(config: Settings | None = None):
                 "next_cursor": cursor_encode(page[-1][0].published_at, page[-1][0].id) if len(rows) > limit else None}
 
     @app.get("/v1/posts/{post_id}", dependencies=[Depends(guard)])
-    def detail(post_id: str, db: Session = Depends(db_session)):
+    def detail(post_id: str, db: Session = Depends(db_session, scope="function")):
         post = public_post(db, post_id)
         return post_json(post, db.get(User, post.author_id))
 
     @app.get("/v1/me/posts", dependencies=[Depends(guard)])
     def mine(limit: int = Query(20, ge=1, le=50), cursor: str | None = Query(None, max_length=96),
-             user: User = Depends(current_user), db: Session = Depends(db_session)):
+             user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         stmt = select(Post).where(Post.author_id == user.id)
         if cursor:
             stmt = stmt.where(before(Post.created_at, Post.id, cursor))
@@ -287,14 +288,14 @@ def create_app(config: Settings | None = None):
                 "next_cursor": cursor_encode(page[-1].created_at, page[-1].id) if len(rows) > limit else None}
 
     @app.get("/v1/me/posts/{post_id}", dependencies=[Depends(guard)])
-    def own_detail(post_id: str, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    def own_detail(post_id: str, user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         post = db.scalar(select(Post).where(Post.id == post_id, Post.author_id == user.id))
         if post is None:
             raise HTTPException(404, "帖子不存在")
         return post_json(post, user, private=True)
 
     @app.delete("/v1/posts/{post_id}", status_code=204, dependencies=[Depends(guard)])
-    def withdraw(post_id: str, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    def withdraw(post_id: str, user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         post = db.scalar(select(Post).where(Post.id == post_id, Post.author_id == user.id).with_for_update())
         if post is None:
             raise HTTPException(404, "帖子不存在")
@@ -302,18 +303,18 @@ def create_app(config: Settings | None = None):
         audit(db, user, "withdraw", post.id, "作者撤回")
 
     @app.put("/v1/posts/{post_id}/favorite", status_code=204, dependencies=[Depends(guard)])
-    def favorite(post_id: str, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    def favorite(post_id: str, user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         public_post(db, post_id, lock=True)
         if db.get(Favorite, (user.id, post_id)) is None:
             db.add(Favorite(user_id=user.id, post_id=post_id, created_at=now()))
 
     @app.delete("/v1/posts/{post_id}/favorite", status_code=204, dependencies=[Depends(guard)])
-    def unfavorite(post_id: str, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    def unfavorite(post_id: str, user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         db.execute(delete(Favorite).where(Favorite.user_id == user.id, Favorite.post_id == post_id))
 
     @app.get("/v1/me/favorites", dependencies=[Depends(guard)])
     def favorites(limit: int = Query(20, ge=1, le=50), cursor: str | None = Query(None, max_length=96),
-                  user: User = Depends(current_user), db: Session = Depends(db_session)):
+                  user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         stmt = select(Post, User, Favorite.created_at).join(Favorite, Favorite.post_id == Post.id).join(User, User.id == Post.author_id).where(Favorite.user_id == user.id, Post.status == "published")
         if cursor:
             stmt = stmt.where(before(Favorite.created_at, Post.id, cursor))
@@ -323,7 +324,7 @@ def create_app(config: Settings | None = None):
                 "next_cursor": cursor_encode(page[-1][2], page[-1][0].id) if len(rows) > limit else None}
 
     @app.post("/v1/posts/{post_id}/reports", status_code=201, dependencies=[Depends(guard)])
-    def report(post_id: str, body: ReportInput, user: User = Depends(current_user), db: Session = Depends(db_session)):
+    def report(post_id: str, body: ReportInput, user: User = Depends(current_user), db: Session = Depends(db_session, scope="function")):
         public_post(db, post_id, lock=True)
         previous = db.scalar(select(Report).where(Report.user_id == user.id, Report.post_id == post_id))
         if previous:
@@ -335,13 +336,13 @@ def create_app(config: Settings | None = None):
     @app.get("/v1/admin/posts", dependencies=[Depends(guard)])
     def queue(status: Literal["pending", "published", "rejected", "removed", "withdrawn"] = "pending",
               limit: int = Query(20, ge=1, le=50), offset: int = Query(0, ge=0, le=10000),
-              actor: User = Depends(admin), db: Session = Depends(db_session)):
+              actor: User = Depends(admin), db: Session = Depends(db_session, scope="function")):
         rows = db.execute(select(Post, User).join(User, Post.author_id == User.id).where(Post.status == status)
                           .order_by(Post.created_at, Post.id).offset(offset).limit(limit)).all()
         return {"items": [post_json(p, u, private=True) for p, u in rows]}
 
     @app.post("/v1/admin/posts/{post_id}/review", dependencies=[Depends(guard)])
-    def review(post_id: str, body: ReviewInput, actor: User = Depends(admin), db: Session = Depends(db_session)):
+    def review(post_id: str, body: ReviewInput, actor: User = Depends(admin), db: Session = Depends(db_session, scope="function")):
         post = db.scalar(select(Post).where(Post.id == post_id).with_for_update())
         if post is None:
             raise HTTPException(404, "帖子不存在")
@@ -357,12 +358,12 @@ def create_app(config: Settings | None = None):
 
     @app.get("/v1/admin/reports", dependencies=[Depends(guard)])
     def reports(limit: int = Query(20, ge=1, le=50), offset: int = Query(0, ge=0, le=10000),
-                actor: User = Depends(admin), db: Session = Depends(db_session)):
+                actor: User = Depends(admin), db: Session = Depends(db_session, scope="function")):
         rows = db.scalars(select(Report).where(Report.status == "open").order_by(Report.created_at, Report.id).offset(offset).limit(limit))
         return {"items": [{"id": r.id, "post_id": r.post_id, "reason": r.reason, "created_at": r.created_at} for r in rows]}
 
     @app.post("/v1/admin/reports/{report_id}/resolve", dependencies=[Depends(guard)])
-    def resolve(report_id: str, body: ReportInput, actor: User = Depends(admin), db: Session = Depends(db_session)):
+    def resolve(report_id: str, body: ReportInput, actor: User = Depends(admin), db: Session = Depends(db_session, scope="function")):
         report = db.scalar(select(Report).where(Report.id == report_id).with_for_update())
         if report is None:
             raise HTTPException(404, "举报不存在")
