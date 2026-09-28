@@ -1,0 +1,77 @@
+name: wenfou
+x-api: &api
+  image: wenfou-api:${WENFOU_IMAGE_TAG:-dev}
+  build:
+    context: ../server
+  environment:
+    WENFOU_DATABASE_URL: postgresql+psycopg://wenfou_app:${APP_DB_PASSWORD:?Generate deploy/.env first}@db:5432/${POSTGRES_DB:-wenfou}
+    WENFOU_ENVIRONMENT: ${WENFOU_ENVIRONMENT:-development}
+    WENFOU_PUBLIC_URL: ${WENFOU_PUBLIC_URL:-http://localhost:8000}
+    WENFOU_REGISTRATION_ENABLED: ${WENFOU_REGISTRATION_ENABLED:-true}
+    WENFOU_DOCS_ENABLED: "false"
+    WENFOU_RATE_LIMIT_ENABLED: "true"
+    WENFOU_SESSION_HOURS: "168"
+    WENFOU_RELEASE: ${WENFOU_IMAGE_TAG:-dev}
+  depends_on:
+    db:
+      condition: service_healthy
+  networks: [backend]
+  read_only: true
+  tmpfs: [/tmp:size=32m,mode=1777]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 512m
+  pids_limit: 128
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wenfou}
+      POSTGRES_USER: wenfou_owner
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Generate deploy/.env first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate deploy/.env first}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    command: [postgres, -c, max_connections=50, -c, shared_buffers=128MB, -c, work_mem=4MB, -c, log_statement=none]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    networks: [backend]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U wenfou_owner -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  api:
+    <<: *api
+    ports: ["127.0.0.1:${WENFOU_LOCAL_PORT:-8000}:8000"]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+  migrate:
+    <<: *api
+    profiles: [tools]
+    environment:
+      WENFOU_DATABASE_URL: postgresql+psycopg://wenfou_owner:${POSTGRES_PASSWORD:?Generate deploy/.env first}@db:5432/${POSTGRES_DB:-wenfou}
+    command: [alembic, upgrade, head]
+    restart: "no"
+networks:
+  backend:
+volumes:
+  postgres_data:
