@@ -1,6 +1,8 @@
 package com.wenfou.app
 
 import android.content.Intent
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -63,12 +65,54 @@ private val samplePosts = listOf(
 )
 
 class MainActivity : ComponentActivity() {
+    private var incoming by mutableStateOf<IncomingImport?>(null)
+    private var resumed = false
+
+    private fun receiveSharedText(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND || intent.type != "text/plain") return
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
+        if (text.isNotBlank()) incoming = IncomingImport(text, false)
+        intent.removeExtra(Intent.EXTRA_TEXT)
+    }
+    public override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        receiveSharedText(intent)
+    }
+    override fun onResume() {
+        super.onResume(); resumed = true
+        window.decorView.post { if (hasWindowFocus()) inspectClipboard() }
+    }
+    override fun onPause() { resumed = false; super.onPause() }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) inspectClipboard()
+    }
+    private fun inspectClipboard() {
+        if (!resumed || incoming != null) return
+        val prefs = getSharedPreferences("import_preferences", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("automatic_clipboard", true)) return
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        // No URI coercion, background listener, or storage of clipboard contents.
+        val text = runCatching {
+            if (clipboard.primaryClipDescription?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true) return
+            clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        }.getOrNull() ?: return
+        if (!ShareImport.canSuggest(text)) return
+        val hash = ShareImport.fingerprint(text)
+        val seen = prefs.getString("seen_hashes", "").orEmpty().split(',').filter { it.isNotEmpty() }
+        if (hash in seen) return
+        prefs.edit().putString("seen_hashes", (seen.takeLast(31) + hash).joinToString(",")).apply()
+        incoming = IncomingImport(text, true)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        receiveSharedText(intent)
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = AccentText, onPrimary = White, background = Paper, onBackground = Ink, surface = White, onSurface = Ink, secondary = Ink, secondaryContainer = Sage, onSecondaryContainer = Ink, primaryContainer = SoftCoral, onPrimaryContainer = AccentText, onSurfaceVariant = Muted, surfaceVariant = Sage, outline = Line, outlineVariant = Line)) {
-                WenfouApp()
+                WenfouApp(incoming) { incoming = null }
             }
         }
     }
@@ -76,7 +120,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WenfouApp() {
+private fun WenfouApp(incoming: IncomingImport?, onIncomingConsumed: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var category by rememberSaveable { mutableStateOf("精选") }
     var question by rememberSaveable { mutableStateOf("") }
@@ -88,40 +132,77 @@ private fun WenfouApp() {
     var preview by rememberSaveable { mutableStateOf(false) }
     var collection by rememberSaveable { mutableStateOf(false) }
     var about by rememberSaveable { mutableStateOf(false) }
+    var importRaw by rememberSaveable { mutableStateOf<String?>(null) }
+    var importAuto by rememberSaveable { mutableStateOf(false) }
+    var sourcePlatform by rememberSaveable { mutableStateOf("") }
+    var sourceUrl by rememberSaveable { mutableStateOf("") }
+    var replacement by remember { mutableStateOf<ImportedDraft?>(null) }
+    val sourceLabel = if (sourcePlatform.isBlank()) "示例内容 · 非真实模型生成" else "外部导入 · $sourcePlatform（经用户编辑确认）"
     val context = LocalContext.current
+    fun useImport(draft: ImportedDraft) {
+        question = draft.question; answer = draft.answer
+        sourcePlatform = draft.platform; sourceUrl = draft.sourceUrl
+        note = ""; shortExcerpt = false; importRaw = null; replacement = null; tab = 2; preview = true
+    }
     fun save(id: Int) { savedIds = if (id in savedIds) savedIds - id else savedIds + id }
     fun editQuestion(value: String) {
-        question = value.take(600)
+        question = value.take(10000)
+        sourcePlatform = ""; sourceUrl = ""
         answer = ""
         preview = false
         shortExcerpt = false
     }
     fun loadSample() {
+        sourcePlatform = ""; sourceUrl = ""
         question = samplePosts[0].question.replace("\n", "")
         answer = samplePosts[0].answer
         shortExcerpt = false
     }
-    val excerpt = if (shortExcerpt) answer.substringBefore("。") + "。" else answer
+    val excerpt = if (shortExcerpt) firstSentence(answer) else answer
 
     Scaffold(
         modifier = Modifier.fillMaxSize().imePadding(),
         containerColor = Paper,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = { BrandHeader(tab) },
+        topBar = { BrandHeader(tab) { importAuto = false; importRaw = "" } },
         bottomBar = { BottomNavigation(tab) { tab = it } },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
                 0 -> DiscoverScreen(category, { category = it }, savedIds, { save(it) }, { detailId = it }, { tab = 1 })
                 1 -> AskScreen(question, { editQuestion(it) }, answer, {
+                    sourcePlatform = ""; sourceUrl = ""
                     // Explicitly marked local sample; no network/model call is made.
                     answer = "试着先把问题拆成三个部分：你希望改变什么、目前有哪些限制、最小的一步是什么。\n\n写下一个这周能尝试的小行动，再用实际体验检查自己的判断。好的问题，可以先带来一个具体的开始。"
-                }, { tab = 2 })
-                2 -> ShareScreen(question, answer, note, { note = it.take(240) }, shortExcerpt, { shortExcerpt = it }, { preview = true }, { loadSample() }, { tab = 1 })
+                }, { tab = 2 }, sourceLabel)
+                2 -> ShareScreen(question, answer, note, { note = it.take(240) }, shortExcerpt, { shortExcerpt = it }, { preview = true }, { loadSample() }, { tab = 1 }, sourceLabel, { importAuto = false; importRaw = "" })
                 else -> ProfileScreen(savedIds.size, question.isNotBlank(), answer.isNotBlank(), { collection = true }, { tab = 1 }, { tab = 2 }, { about = true })
             }
         }
     }
+    if (incoming != null) AlertDialog(
+        onDismissRequest = onIncomingConsumed,
+        title = { Text(if (incoming.fromClipboard) "发现剪贴板内容" else "收到分享内容") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(ShareImport.link(incoming.text)?.let { "发现 ${it.platform} 分享链接，是否解析问答并准备发布？" } ?: "是否将这段复制文字整理成问答？")
+            Text(incoming.text.take(150), maxLines = 4, overflow = TextOverflow.Ellipsis, style = Caption)
+            Text("解析后可编辑核对，不会自动公开。", style = Caption)
+        } },
+        confirmButton = { TextButton(onClick = { importRaw = incoming.text; importAuto = true; onIncomingConsumed() }) { Text("解析并预览") } },
+        dismissButton = { TextButton(onClick = onIncomingConsumed) { Text("暂不导入") } }
+    )
+    importRaw?.let { raw ->
+        ImportDialog(raw, importAuto, onDismiss = { importRaw = null; replacement = null }, onUse = { draft ->
+            if (question.isNotBlank() || answer.isNotBlank() || note.isNotBlank()) replacement = draft else useImport(draft)
+        })
+    }
+    replacement?.let { draft -> AlertDialog(
+        onDismissRequest = { replacement = null },
+        title = { Text("替换当前分享草稿？") },
+        text = { Text("现有问题、回答和分享理由会被这次导入的内容替换。") },
+        confirmButton = { TextButton(onClick = { useImport(draft) }) { Text("替换草稿") } },
+        dismissButton = { TextButton(onClick = { replacement = null }) { Text("保留原草稿") } }
+    ) }
     detailId?.let { id ->
         val post = samplePosts.first { it.id == id }
         ModalBottomSheet(sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { detailId = null }, containerColor = Paper) {
@@ -150,12 +231,13 @@ private fun WenfouApp() {
                         Text(question, style = Headline.copy(fontSize = 23.sp, lineHeight = 32.sp))
                         Text(excerpt, style = Body)
                         if (note.isNotBlank()) { HorizontalDivider(color = Line); Text("我的分享理由", style = Caption); Text(note, style = Body) }
-                        Eyebrow("问否 · 示例内容，非真实模型生成", Muted)
+                        Text("问否 · $sourceLabel", style = Caption)
+                        if (sourceUrl.isNotBlank()) Text(sourceUrl, style = Caption)
                     }
                 }
                 PrimaryButton("分享文字", Modifier.fillMaxWidth()) {
                     val text = "问否 · 一个值得分享的问题\n\n$question\n\n$excerpt" +
-                        (if (note.isBlank()) "" else "\n\n我的分享理由：$note") + "\n\n【本地示例内容，非真实模型生成】"
+                        (if (note.isBlank()) "" else "\n\n我的分享理由：$note") + "\n\n【$sourceLabel】" + (if (sourceUrl.isBlank()) "" else "\n来源：$sourceUrl")
                     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }, "分享问答"))
                 }
                 Text("当前仅预览和分享文字，不会发布到社区。", style = Caption)
@@ -173,22 +255,18 @@ private fun WenfouApp() {
             }
         }
     }
-    if (about) AlertDialog(onDismissRequest = { about = false }, containerColor = Paper, title = { Text("好问题，值得被看见。", style = Headline.copy(fontSize = 24.sp)) }, text = { Text("问否 0.2.0\n\n人与 AI 的问答分享空间。\n\n这是本地体验版：问答内容为示例，收藏仅保留在当前会话中，尚未接入登录与社区服务。", style = Body) }, confirmButton = { TextButton(onClick = { about = false }) { Text("知道了") } })
+    if (about) AlertDialog(onDismissRequest = { about = false }, containerColor = Paper, title = { Text("好问题，值得被看见。", style = Headline.copy(fontSize = 24.sp)) }, text = { Text("问否 0.3.0\n\n人与 AI 的问答分享空间。\n\n这是本地体验版：支持外部问答导入；App 内生成的回答为示例。收藏和草稿仅保留在当前会话中，尚未接入登录与社区发布服务。", style = Body) }, confirmButton = { TextButton(onClick = { about = false }) { Text("知道了") } })
 }
 
 @Composable
-private fun BrandHeader(tab: Int) {
+private fun BrandHeader(tab: Int, onImport: () -> Unit) {
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 24.dp, vertical = 15.dp), verticalAlignment = Alignment.CenterVertically) {
         BrandMark(34)
         Spacer(Modifier.width(9.dp))
         BrandWordmark(76)
         Spacer(Modifier.weight(1f))
-        if (tab == 1) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) { LineIcon("lock", Muted, Modifier.size(15.dp)); Text("私密提问", style = Caption) }
-        } else {
-            Text("WENFOU", style = Caption.copy(letterSpacing = 2.sp, fontSize = 10.sp, fontWeight = FontWeight.Bold))
-            Box(Modifier.padding(start = 8.dp).size(6.dp).background(Coral, CircleShape))
-        }
+        TextButton(onClick = onImport) { Text("导入", color = AccentText) }
+
     }
 }
 
@@ -283,16 +361,16 @@ private fun PostCard(post: QuestionCard, saved: Boolean, onSave: () -> Unit, onO
 }
 
 @Composable
-private fun AskScreen(question: String, onChange: (String) -> Unit, answer: String, onAsk: () -> Unit, onShare: () -> Unit) {
+private fun AskScreen(question: String, onChange: (String) -> Unit, answer: String, onAsk: () -> Unit, onShare: () -> Unit, sourceLabel: String) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(top = 12.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         Eyebrow("每个好答案，都从好奇开始", AccentText)
         Text("把困惑，\n问成新的可能。", style = Headline.copy(fontSize = 32.sp, lineHeight = 43.sp))
         Text("先自由地问。想分享时，再选择公开的片段。", style = Body.copy(fontSize = 14.sp, color = Muted))
         Surface(shape = CardShape, color = White, border = BorderStroke(1.dp, Line)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) { Box(Modifier.size(6.dp).background(Coral, CircleShape)); Text("本地体验 · 示例回答", style = Caption) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) { Box(Modifier.size(6.dp).background(Coral, CircleShape)); Text(sourceLabel, style = Caption) }
                 TextField(value = question, onValueChange = onChange, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "我的问题" }, placeholder = { Text("此刻，有什么想问的？\n\n一个困惑、一个脑洞，\n或一个迟迟没做的决定。", style = Body.copy(color = Muted)) }, minLines = 5, maxLines = 9, textStyle = Body.copy(fontSize = 17.sp, lineHeight = 27.sp), colors = TextFieldDefaults.colors(focusedContainerColor = White, unfocusedContainerColor = White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { LineIcon("lock", Muted, Modifier.size(14.dp)); Text(" 仅自己可见", style = Caption, modifier = Modifier.weight(1f)); Text("${question.length}/600", style = Caption) }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { LineIcon("lock", Muted, Modifier.size(14.dp)); Text(" 仅自己可见", style = Caption, modifier = Modifier.weight(1f)); Text("${question.length}/10000", style = Caption) }
                 PrimaryButton(if (answer.isBlank()) "看看示例回答" else "重新查看示例", Modifier.fillMaxWidth(), question.isNotBlank(), onAsk)
             }
         }
@@ -302,17 +380,23 @@ private fun AskScreen(question: String, onChange: (String) -> Unit, answer: Stri
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Sage.copy(alpha = .65f)).clickable { onChange(prompt) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Text(prompt, style = Body.copy(fontSize = 14.sp), modifier = Modifier.weight(1f)); LineIcon("arrow", Muted, Modifier.size(18.dp)) }
             }
         } else {
-            AnswerBlock(answer)
+            AnswerBlock(answer, sourceLabel)
             OutlinedButton(onClick = onShare, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), shape = CircleShape, border = BorderStroke(1.dp, Ink)) { LineIcon("share", Ink, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("整理成分享", color = Ink) }
         }
     }
 }
 
 @Composable
-private fun ShareScreen(question: String, answer: String, note: String, onNote: (String) -> Unit, short: Boolean, onShort: (Boolean) -> Unit, onPreview: () -> Unit, onSample: () -> Unit, onAsk: () -> Unit) {
+private fun ShareScreen(question: String, answer: String, note: String, onNote: (String) -> Unit, short: Boolean, onShort: (Boolean) -> Unit, onPreview: () -> Unit, onSample: () -> Unit, onAsk: () -> Unit, sourceLabel: String, onImport: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(top = 12.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         Eyebrow("把有启发的一刻，留给更多人", AccentText)
         Text("分享一个\n值得停留的答案。", style = Headline.copy(fontSize = 30.sp, lineHeight = 41.sp))
+        Surface(shape = RoundedCornerShape(20.dp), color = Sage, onClick = onImport) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("导入 AI 对话  ↗", style = Body.copy(fontWeight = FontWeight.Bold))
+                Text("DeepSeek · ChatGPT · 豆包 · Kimi\n粘贴分享链接，或复制的问答文字", style = Caption)
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { listOf("01  选片段", "02  写理由", "03  看预览").forEach { Text(it, style = Caption.copy(color = Ink, fontWeight = FontWeight.Medium)) } }
         if (answer.isBlank()) {
             Surface(shape = CardShape, color = Sage) {
@@ -334,8 +418,8 @@ private fun ShareScreen(question: String, answer: String, note: String, onNote: 
                         FilterChip(shape = CircleShape, selected = !short, onClick = { onShort(false) }, label = { Text("完整回答") })
                         FilterChip(shape = CircleShape, selected = short, onClick = { onShort(true) }, label = { Text("只选第一句") })
                     }
-                    Text(if (short) answer.substringBefore("。") + "。" else answer, style = Body)
-                    Text("示例内容 · 非真实模型生成", style = Caption)
+                    Text(if (short) firstSentence(answer) else answer, style = Body)
+                    Text(sourceLabel, style = Caption)
                 }
             }
             Text("你为什么想分享？", style = Headline.copy(fontSize = 20.sp, lineHeight = 27.sp))
@@ -370,7 +454,7 @@ private fun ProfileScreen(savedCount: Int, hasQuestion: Boolean, hasDraft: Boole
                 ProfileRow("share", "分享草稿", "还没说完的想法", onDrafts)
             }
         }
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onAbout).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { Text("关于问否", style = Body, modifier = Modifier.weight(1f)); Text("v0.2.0", style = Caption); Spacer(Modifier.width(12.dp)); LineIcon("arrow", Muted, Modifier.size(18.dp)) }
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onAbout).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { Text("关于问否", style = Body, modifier = Modifier.weight(1f)); Text("v0.3.0", style = Caption); Spacer(Modifier.width(12.dp)); LineIcon("arrow", Muted, Modifier.size(18.dp)) }
         Text("保持好奇。\n下一个好问题，就在生活里。", style = Headline.copy(fontSize = 22.sp, lineHeight = 34.sp, color = Muted))
         Text("本地体验版 · 收藏和草稿仅在当前会话中保留", style = Caption.copy(fontSize = 11.sp))
     }
@@ -386,12 +470,12 @@ private fun ProfileRow(icon: String, title: String, subtitle: String, onClick: (
 }
 
 @Composable
-private fun AnswerBlock(answer: String) {
+private fun AnswerBlock(answer: String, sourceLabel: String = "示例回答 · 非真实模型生成") {
     Surface(shape = CardShape, color = Sage) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { BrandMark(25); Text("一个思考角度", style = Body.copy(fontWeight = FontWeight.Bold)) }
             Text(answer, style = Body.copy(lineHeight = 27.sp))
-            Text("示例回答 · 非真实模型生成", style = Caption.copy(fontSize = 11.sp))
+            Text(sourceLabel, style = Caption.copy(fontSize = 11.sp))
         }
     }
 }
@@ -457,4 +541,9 @@ private fun LineIcon(name: String, color: Color, modifier: Modifier = Modifier) 
             }
         }
     }
+}
+
+internal fun firstSentence(text: String): String {
+    val end = text.indexOfFirst { it in "。！？!?\n" }
+    return if (end < 0) text else text.take(end + 1).trimEnd()
 }
