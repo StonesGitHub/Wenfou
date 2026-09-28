@@ -181,6 +181,7 @@ private fun WenfouApp(incoming: IncomingImport?, onIncomingConsumed: () -> Unit)
         }
     }
     if (incoming != null) AlertDialog(
+        containerColor = Paper,
         onDismissRequest = onIncomingConsumed,
         title = { Text(if (incoming.fromClipboard) "发现剪贴板内容" else "收到分享内容") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -197,6 +198,7 @@ private fun WenfouApp(incoming: IncomingImport?, onIncomingConsumed: () -> Unit)
         })
     }
     replacement?.let { draft -> AlertDialog(
+        containerColor = Paper,
         onDismissRequest = { replacement = null },
         title = { Text("替换当前分享草稿？") },
         text = { Text("现有问题、回答和分享理由会被这次导入的内容替换。") },
