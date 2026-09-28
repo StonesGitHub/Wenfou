@@ -19,4 +19,4 @@
 
 本地样例回答并非模型生成。后续接入登录、HTTP/流式接口、PostgreSQL、模型适配、运营审核和真机验证。核心约束：私聊按所有者校验；公开读取只来自快照；发布由用户选取片段并确认；分叉仅复制公开快照。
 
-当前环境没有 Android SDK，也无法下载 Gradle 发行包，尚未完成 APK 构建验证；Python 领域测试已通过。
+GitHub Actions 的 `CI` 工作流执行领域测试和 Android debug 构建，成功后可从运行页面的 `wenfou-debug-apk` 产物下载 APK。2026-09-27 的首轮构建已通过；尚未做真机交互验收。当前环境没有 Android SDK，故本地未运行 Android 构建。

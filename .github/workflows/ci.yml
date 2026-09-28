@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [codex/android-foundation]
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  domain-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test privacy and publication rules
+        working-directory: server
+        run: python3 -m unittest discover -s tests -v
+
+  android-debug:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify preinstalled SDK
+        run: test -d "$ANDROID_HOME/platforms/android-36"
+      - name: Build debug APK
+        working-directory: clients/android
+        run: bash gradlew :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wenfou-debug-apk
+          path: clients/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - name: Render UI and test question-to-share flow
+        working-directory: clients/android
+        timeout-minutes: 5
+        run: |
+          mkdir -p app/build/outputs/ui-review
+          set +e
+          bash gradlew :app:testDebugUnitTest --no-daemon &
+          test_pid=$!
+          (
+            sleep 90
+            if kill -0 "$test_pid" 2>/dev/null; then
+              for jvm_pid in $(jps -q); do
+                jcmd "$jvm_pid" Thread.print > "app/build/outputs/ui-review/threads-$jvm_pid.txt" 2>&1
+              done
+              sleep 30
+              kill -TERM "$test_pid" 2>/dev/null
+            fi
+          ) &
+          watchdog_pid=$!
+          wait "$test_pid"
+          test_result=$?
+          kill "$watchdog_pid" 2>/dev/null
+          exit "$test_result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wenfou-ui-review
+          path: |
+            clients/android/app/build/outputs/ui-review/
+            clients/android/app/build/reports/tests/
+          if-no-files-found: warn
