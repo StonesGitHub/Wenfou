@@ -8,3 +8,9 @@ __pycache__/
 .venv/
 .env
 .DS_Store
+*.db
+.pytest_cache/
+backups/
+deploy/state/
+.env.*
+!.env.example

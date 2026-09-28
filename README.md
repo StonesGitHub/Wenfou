@@ -1,22 +1,35 @@
 # 问否（Wenfou）
 
-安卓优先的 AI 问答分享社区。本仓库当前是首个开发切片，还不能对公网提供服务。
+面向中国市场的 AI 问答分享应用，安卓优先，后续接微信小程序。
 
-当前实现：
+- **Android v0.3**：Compose 界面、品牌字标、外部 AI 分享链接/文字导入、前台剪贴板提示、编辑核对、本地分享预览。当前尚未连接服务端。
+- **Server v0.4**：可部署的邀请制问答社区 API，PostgreSQL 持久化、登录会话、人工审核、公开流、收藏、举报、撤回与账号注销。无真实模型调用。
+- **部署目标**：Ubuntu 24.04 x86_64，2 核 2 GB；Docker Compose，同机 API + PostgreSQL，生产加 Caddy HTTPS。
 
-- server/wenfou/core.py：私密会话、模拟回答、选段提交、审核状态、公开快照、私密分叉。
-- server/tests/test_core.py：覆盖未发布不可读、越权、选段归属、分叉隔离与撤回。
-- contracts/api-draft.yaml：安卓首版与后续小程序共用的首批接口草案。
-- clients/android/：可由 Android Studio 打开的原生 Kotlin/Compose 工程，包含发现、提问、发布预览和个人入口；当前使用本地样例数据。
+## 部署交接
 
-安卓工程使用 JDK 17、Android SDK 36。用 Android Studio 打开 clients/android，安装 SDK 后运行 app 的 debug 配置。命令行可在该目录运行：
+**执行 agent 请先完整阅读 [deploy/HANDOFF.md](deploy/HANDOFF.md)**，按交付 commit 部署。文档包含必要输入、环境生成、数据库迁移、管理员初始化、两账号验收、备份恢复与更新回滚；不需要把密码或密钥发送给开发 agent。
 
-    bash gradlew :app:assembleDebug
+- [API 与环境配置](docs/server-v0.4.md)
+- [OpenAPI v0.4](contracts/openapi-v0.4.json)
+- [外部导入范围与验证](docs/import-v0.3.md)
+- [品牌/UI 设计](docs/design-v2.md)
 
-在 server 目录执行以下命令验证领域逻辑：
+## 开发验证
 
-    python3 -m unittest discover -s tests -v
+```bash
+python3 -m venv .venv
+.venv/bin/pip install --require-hashes -r server/requirements-dev.txt
+PYTHONPATH=server .venv/bin/pytest server/tests scripts/test_configure.py -q
+```
 
-本地样例回答并非模型生成。后续接入登录、HTTP/流式接口、PostgreSQL、模型适配、运营审核和真机验证。核心约束：私聊按所有者校验；公开读取只来自快照；发布由用户选取片段并确认；分叉仅复制公开快照。
+`Server` CI 另使用真实 PostgreSQL 验证迁移/并发，并通过 Docker Compose 完成部署、API smoke、重启、备份恢复和重复部署。原 SQLite 隐私领域原型及其测试保留，未直接暴露成 HTTP。
 
-GitHub Actions 的 `CI` 工作流执行领域测试和 Android debug 构建，成功后可从运行页面的 `wenfou-debug-apk` 产物下载 APK。2026-09-27 的首轮构建已通过；尚未做真机交互验收。当前环境没有 Android SDK，故本地未运行 Android 构建。
+Android 需要 JDK 17 与 Android SDK 36：
+
+```bash
+cd clients/android
+bash gradlew :app:assembleDebug :app:testDebugUnitTest
+```
+
+开发分支为 `codex/server-foundation`（从 `codex/android-foundation` 继续），不可假设 main 已包含这些功能。部署前查阅当前版本的 CI 结果；完成服务器配置并不代表备案、真实 Android 联网或公网运营验收已完成。
